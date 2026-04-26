@@ -1,0 +1,6 @@
+name: speconn_dart
+description: Dart runtime for Speconn RPC
+version: 0.0.1
+
+environment:
+  sdk: ^3.6.0

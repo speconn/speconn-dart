@@ -1,4 +1,4 @@
-library speconn_dart;
+library speconn;
 
 export 'src/client.dart';
 export 'src/envelope.dart';

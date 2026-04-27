@@ -1,0 +1,11 @@
+FROM dhi.io/dart:3-alpine3.22-dev AS builder
+WORKDIR /app
+COPY pubspec.yaml ./
+RUN --mount=type=cache,target=/root/.pub-cache \
+    dart pub get
+COPY lib/ lib/
+RUN --mount=type=cache,target=/root/.pub-cache \
+    dart analyze lib/
+
+FROM scratch
+COPY --from=builder /app/lib/ /out/

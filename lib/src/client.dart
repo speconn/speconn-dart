@@ -1,73 +1,105 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
+
+import 'envelope.dart';
 import 'error.dart';
+import 'transport.dart';
 
 class UnaryClient {
   final String baseUrl;
-  final HttpClient _httpClient;
+  final Transport _transport;
+  final bool _ownsTransport;
 
-  UnaryClient(this.baseUrl) : _httpClient = HttpClient();
+  UnaryClient._(this.baseUrl, this._transport, this._ownsTransport);
 
-  Future<T> call<T>(String path, Map<String, dynamic> req, T Function(Map<String, dynamic>) fromJson) async {
-    final url = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
-    final httpClientRequest = await _httpClient.postUrl(url);
-    httpClientRequest.headers.set('Content-Type', 'application/json');
-    httpClientRequest.write(jsonEncode(req));
-
-    final response = await httpClientRequest.close();
-    final body = await response.transform(utf8.decoder).join();
-
-    if (response.statusCode != 200) {
-      final err = jsonDecode(body) as Map<String, dynamic>;
-      throw SpeconnError(err['code'] as String? ?? 'unknown', err['message'] as String? ?? '');
-    }
-
-    return fromJson(jsonDecode(body) as Map<String, dynamic>);
+  factory UnaryClient(String baseUrl, {Transport? transport}) {
+    final t = transport ?? IOClientTransport();
+    return UnaryClient._(
+      baseUrl.replaceAll(RegExp(r'/+$'), ''),
+      t,
+      transport == null,
+    );
   }
 
-  void close() => _httpClient.close();
-}
+  Future<T> call<T>(
+    String path,
+    Map<String, dynamic> req,
+    T Function(Map<String, dynamic>) fromJson,
+  ) async {
+    final url = '$baseUrl$path';
+    final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
 
-class StreamClient {
-  final String baseUrl;
-  final HttpClient _httpClient;
+    final resp = await _transport.post(
+      url,
+      'application/json',
+      body,
+      const {},
+    );
 
-  StreamClient(this.baseUrl) : _httpClient = HttpClient();
+    if (resp.status >= 400) {
+      final err = _parseBody(resp.body);
+      throw SpeconnError(
+        err['code'] as String? ?? SpeconnError.unknown,
+        err['message'] as String? ?? '',
+      );
+    }
 
-  Stream<T> call<T>(String path, Map<String, dynamic> req, T Function(Map<String, dynamic>) fromJson) async* {
-    final url = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
-    final httpClientRequest = await _httpClient.postUrl(url);
-    httpClientRequest.headers.set('Content-Type', 'application/connect+json');
-    httpClientRequest.headers.set('Connect-Protocol-Version', '1');
-    httpClientRequest.write(jsonEncode(req));
+    return fromJson(_parseBody(resp.body));
+  }
 
-    final response = await httpClientRequest.close();
+  Stream<T> stream<T>(
+    String path,
+    Map<String, dynamic> req,
+    T Function(Map<String, dynamic>) fromJson,
+  ) async* {
+    final url = '$baseUrl$path';
+    final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
 
-    final chunks = <int>[];
-    await for (final chunk in response) {
-      chunks.addAll(chunk);
+    final resp = await _transport.post(
+      url,
+      'application/connect+json',
+      body,
+      {'connect-protocol-version': '1'},
+    );
 
-      while (chunks.length >= 5) {
-        final flags = chunks[0];
-        final length = (chunks[1] << 24) | (chunks[2] << 16) | (chunks[3] << 8) | chunks[4];
-        if (chunks.length < 5 + length) break;
+    if (resp.status >= 400) {
+      final err = _parseBody(resp.body);
+      throw SpeconnError(
+        err['code'] as String? ?? SpeconnError.unknown,
+        err['message'] as String? ?? '',
+      );
+    }
 
-        final payload = chunks.sublist(5, 5 + length);
-        chunks.removeRange(0, 5 + length);
+    var pos = 0;
+    while (pos < resp.body.length) {
+      if (resp.body.length - pos < 5) break;
+      final remaining = Uint8List.sublistView(resp.body, pos);
+      final (:flags, :payload) = decodeEnvelope(remaining);
+      pos += 5 + payload.length;
 
-        if (flags & 0x02 != 0) {
-          final trailer = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
-          final error = trailer['error'] as Map<String, dynamic>?;
-          if (error != null) {
-            throw SpeconnError(error['code'] as String? ?? 'unknown', error['message'] as String? ?? '');
-          }
-          return;
+      if (flags & flagEndStream != 0) {
+        final trailer = _parseBody(payload);
+        final error = trailer['error'] as Map<String, dynamic>?;
+        if (error != null) {
+          throw SpeconnError(
+            error['code'] as String? ?? SpeconnError.unknown,
+            error['message'] as String? ?? '',
+          );
         }
-
-        yield fromJson(jsonDecode(utf8.decode(payload)) as Map<String, dynamic>);
+        return;
       }
+
+      yield fromJson(_parseBody(payload));
     }
   }
 
-  void close() => _httpClient.close();
+  void close() {
+    if (_ownsTransport) {
+      (_transport as IOClientTransport).close();
+    }
+  }
+
+  static Map<String, dynamic> _parseBody(Uint8List body) {
+    return jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+  }
 }

@@ -5,17 +5,6 @@ import 'envelope.dart';
 import 'error.dart';
 import 'transport.dart';
 
-class CallOptions {
-  final Map<String, String> headers;
-  const CallOptions({this.headers = const {}});
-}
-
-CallOptions withHeader(String key, String value) =>
-    CallOptions(headers: {key: value});
-
-CallOptions withHeaders(Map<String, String> headers) =>
-    CallOptions(headers: headers);
-
 class UnaryClient {
   static final Finalizer<Transport> _finalizer = Finalizer((t) {
     if (t is IOClientTransport) t.close();
@@ -40,17 +29,12 @@ class UnaryClient {
     String path,
     Map<String, dynamic> req,
     T Function(Map<String, dynamic>) fromJson, {
-    CallOptions? options,
+    Map<String, String> headers = const {},
   }) async {
     final url = '$baseUrl$path';
     final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
 
-    final resp = await _transport.post(
-      url,
-      'application/json',
-      body,
-      options?.headers ?? const {},
-    );
+    final resp = await _transport.post(url, 'application/json', body, headers);
 
     if (resp.status >= 400) {
       final err = _parseBody(resp.body);
@@ -67,19 +51,18 @@ class UnaryClient {
     String path,
     Map<String, dynamic> req,
     T Function(Map<String, dynamic>) fromJson, {
-    CallOptions? options,
+    Map<String, String> headers = const {},
   }) async* {
     final url = '$baseUrl$path';
     final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
 
-    final headers = <String, String>{'connect-protocol-version': '1'};
-    headers.addAll(options?.headers ?? const {});
+    final merged = {'connect-protocol-version': '1', ...headers};
 
     final resp = await _transport.post(
       url,
       'application/connect+json',
       body,
-      headers,
+      merged,
     );
 
     if (resp.status >= 400) {

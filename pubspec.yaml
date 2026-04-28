@@ -4,3 +4,6 @@ version: 0.0.2
 
 environment:
   sdk: ^3.6.0
+
+dependencies:
+  http: ^1.2.0

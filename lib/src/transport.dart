@@ -1,6 +1,5 @@
-import 'dart:io';
 import 'dart:typed_data';
-
+import 'package:http/http.dart' as http;
 
 abstract class Transport {
   Future<TransportResponse> post(
@@ -19,9 +18,9 @@ class TransportResponse {
 }
 
 class IOClientTransport implements Transport {
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
 
-  IOClientTransport() : _httpClient = HttpClient();
+  IOClientTransport() : _httpClient = http.Client();
 
   @override
   Future<TransportResponse> post(
@@ -30,19 +29,15 @@ class IOClientTransport implements Transport {
     Uint8List body,
     Map<String, String> headers,
   ) async {
-    final uri = Uri.parse(url);
-    final request = await _httpClient.postUrl(uri);
-    request.headers.set('Content-Type', contentType);
-    headers.forEach((k, v) => request.headers.set(k, v));
-    request.add(body);
-    final response = await request.close();
-    final builder = BytesBuilder();
-    await for (final chunk in response) {
-      builder.add(chunk);
-    }
+    final req = http.Request('POST', Uri.parse(url));
+    req.headers['Content-Type'] = contentType;
+    req.headers.addAll(headers);
+    req.bodyBytes = body;
+    final resp = await _httpClient.send(req);
+    final respBody = await resp.stream.toBytes();
     return TransportResponse(
-      status: response.statusCode,
-      body: builder.toBytes(),
+      status: resp.statusCode,
+      body: Uint8List.fromList(respBody),
     );
   }
 

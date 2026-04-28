@@ -21,7 +21,7 @@ class TransportResponse {
 class IOClientTransport implements Transport {
   final HttpClient _httpClient;
 
-  IOClientTransport() : _httpClient = HttpClient() ..idleTimeout = Duration.zero;
+  IOClientTransport() : _httpClient = HttpClient();
 
   @override
   Future<TransportResponse> post(

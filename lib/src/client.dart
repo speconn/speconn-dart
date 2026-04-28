@@ -4,28 +4,28 @@ import 'dart:typed_data';
 import 'envelope.dart';
 import 'error.dart';
 import 'transport.dart';
+import 'transport_http.dart';
 
-class UnaryClient {
-  final String baseUrl;
-  final HttpClient _httpClient;
+class SpeconnClient {
+  final String _url;
+  final SpeconnTransport _transport;
 
-  UnaryClient(this.baseUrl, {HttpClient? httpClient})
-      : _httpClient = httpClient ?? createHttpClient();
+  SpeconnClient(String baseUrl, String path, {SpeconnTransport? transport})
+      : _url = '${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path',
+        _transport = transport ?? HttpTransport();
 
   Future<T> call<T>(
-    String path,
     Map<String, dynamic> req,
     T Function(Map<String, dynamic>) fromJson, {
     Map<String, String> headers = const {},
   }) async {
-    final url = '$baseUrl$path';
     final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
     final reqHeaders = {
       'content-type': 'application/json',
       ...headers,
     };
-    final resp = await _httpClient(
-      HttpRequest(url: url, method: 'POST', headers: reqHeaders, body: body),
+    final resp = await _transport.send(
+      HttpRequest(url: _url, method: 'POST', headers: reqHeaders, body: body),
     );
     if (resp.status >= 400) {
       final err = _parseBody(resp.body);
@@ -38,20 +38,18 @@ class UnaryClient {
   }
 
   Stream<T> stream<T>(
-    String path,
     Map<String, dynamic> req,
     T Function(Map<String, dynamic>) fromJson, {
     Map<String, String> headers = const {},
   }) async* {
-    final url = '$baseUrl$path';
     final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
     final reqHeaders = {
       'content-type': 'application/connect+json',
       'connect-protocol-version': '1',
       ...headers,
     };
-    final resp = await _httpClient(
-      HttpRequest(url: url, method: 'POST', headers: reqHeaders, body: body),
+    final resp = await _transport.send(
+      HttpRequest(url: _url, method: 'POST', headers: reqHeaders, body: body),
     );
     if (resp.status >= 400) {
       final err = _parseBody(resp.body);

@@ -1,46 +1,43 @@
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
-abstract class Transport {
-  Future<TransportResponse> post(
-    String url,
-    String contentType,
-    Uint8List body,
-    Map<String, String> headers,
-  );
+class HttpRequest {
+  final String url;
+  final String method;
+  final Map<String, String> headers;
+  final Uint8List body;
+
+  const HttpRequest({
+    required this.url,
+    required this.method,
+    required this.headers,
+    required this.body,
+  });
 }
 
-class TransportResponse {
+class HttpResponse {
   final int status;
   final Uint8List body;
 
-  const TransportResponse({required this.status, required this.body});
+  const HttpResponse({required this.status, required this.body});
 }
 
-class IOClientTransport implements Transport {
-  @override
-  Future<TransportResponse> post(
-    String url,
-    String contentType,
-    Uint8List body,
-    Map<String, String> headers,
-  ) async {
+/// HttpClient is the type Speconn expects HTTP clients to implement.
+typedef HttpClient = Future<HttpResponse> Function(HttpRequest request);
+
+/// Default HttpClient implementation using package:http.
+HttpClient createHttpClient() {
+  return (request) async {
     final client = http.Client();
     try {
-      final req = http.Request('POST', Uri.parse(url));
-      req.headers['Content-Type'] = contentType;
-      req.headers.addAll(headers);
-      req.bodyBytes = body;
+      final req = http.Request(request.method, Uri.parse(request.url));
+      req.headers.addAll(request.headers);
+      req.bodyBytes = request.body;
       final resp = await client.send(req);
-      final respBody = await resp.stream.toBytes();
-      return TransportResponse(
-        status: resp.statusCode,
-        body: Uint8List.fromList(respBody),
-      );
+      final body = Uint8List.fromList(await resp.stream.toBytes());
+      return HttpResponse(status: resp.statusCode, body: body);
     } finally {
       client.close();
     }
-  }
-
-  void close() {}
+  };
 }

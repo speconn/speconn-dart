@@ -6,18 +6,22 @@ import 'error.dart';
 import 'transport.dart';
 
 class UnaryClient {
+  static final Finalizer<Transport> _finalizer = Finalizer((t) {
+    if (t is IOClientTransport) t.close();
+  });
+
   final String baseUrl;
   final Transport _transport;
-  final bool _ownsTransport;
 
-  UnaryClient._(this.baseUrl, this._transport, this._ownsTransport);
+  UnaryClient._(this.baseUrl, this._transport) {
+    _finalizer.attach(this, _transport, detach: this);
+  }
 
   factory UnaryClient(String baseUrl, {Transport? transport}) {
     final t = transport ?? IOClientTransport();
     return UnaryClient._(
       baseUrl.replaceAll(RegExp(r'/+$'), ''),
       t,
-      transport == null,
     );
   }
 
@@ -94,7 +98,8 @@ class UnaryClient {
   }
 
   void close() {
-    if (_ownsTransport) {
+    _finalizer.detach(this);
+    if (_transport is IOClientTransport) {
       (_transport as IOClientTransport).close();
     }
   }

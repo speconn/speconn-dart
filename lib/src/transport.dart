@@ -18,10 +18,6 @@ class TransportResponse {
 }
 
 class IOClientTransport implements Transport {
-  final http.Client _httpClient;
-
-  IOClientTransport() : _httpClient = http.Client();
-
   @override
   Future<TransportResponse> post(
     String url,
@@ -29,17 +25,22 @@ class IOClientTransport implements Transport {
     Uint8List body,
     Map<String, String> headers,
   ) async {
-    final req = http.Request('POST', Uri.parse(url));
-    req.headers['Content-Type'] = contentType;
-    req.headers.addAll(headers);
-    req.bodyBytes = body;
-    final resp = await _httpClient.send(req);
-    final respBody = await resp.stream.toBytes();
-    return TransportResponse(
-      status: resp.statusCode,
-      body: Uint8List.fromList(respBody),
-    );
+    final client = http.Client();
+    try {
+      final req = http.Request('POST', Uri.parse(url));
+      req.headers['Content-Type'] = contentType;
+      req.headers.addAll(headers);
+      req.bodyBytes = body;
+      final resp = await client.send(req);
+      final respBody = await resp.stream.toBytes();
+      return TransportResponse(
+        status: resp.statusCode,
+        body: Uint8List.fromList(respBody),
+      );
+    } finally {
+      client.close();
+    }
   }
 
-  void close() => _httpClient.close();
+  void close() {}
 }

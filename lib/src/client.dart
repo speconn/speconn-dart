@@ -1,10 +1,33 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'envelope.dart';
 import 'error.dart';
 import 'transport.dart';
 import 'transport_http.dart';
+import 'package:specodec/specodec.dart';
+
+
+String _getContentType(Map<String, String> headers) {
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() == 'content-type') return entry.value;
+  }
+  return 'application/json';
+}
+
+String _getAccept(Map<String, String> headers) {
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() == 'accept') return entry.value;
+  }
+  return _getContentType(headers);
+}
+
+String _extractFormat(String mime) =>
+    mime.contains('msgpack') ? 'msgpack' : 'json';
+
+String _formatToMime(String fmt, {bool stream = false}) {
+  final base = fmt == 'msgpack' ? 'msgpack' : 'json';
+  return stream ? 'application/connect+$base' : 'application/$base';
+}
 
 class SpeconnClient {
   final String _url;
@@ -15,48 +38,45 @@ class SpeconnClient {
         _transport = transport ?? HttpTransport();
 
   Future<T> call<T>(
-    Map<String, dynamic> req,
-    T Function(Map<String, dynamic>) fromJson, {
-    Map<String, String> headers = const {},
-  }) async {
-    final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
-    final reqHeaders = {
-      'content-type': 'application/json',
-      ...headers,
-    };
+    SpecCodec<T> reqCodec,
+    T req,
+    SpecCodec<T> resCodec,
+    {Map<String, String> headers = const {}}
+  ) async {
+    final reqFmt = _extractFormat(_getContentType(headers));
+    final resFmt = _extractFormat(_getAccept(headers));
+
+    final body = respond(reqCodec, req, reqFmt).body;
+
     final resp = await _transport.send(
-      HttpRequest(url: _url, method: 'POST', headers: reqHeaders, body: body),
+      HttpRequest(url: _url, method: 'POST', headers: headers, body: body),
     );
     if (resp.status >= 400) {
-      final err = _parseBody(resp.body);
-      throw SpeconnError(
-        err['code'] as String? ?? SpeconnError.unknown,
-        err['message'] as String? ?? '',
-      );
+      throw _parseError(resp.body);
     }
-    return fromJson(_parseBody(resp.body));
+    return dispatch(resCodec, resp.body, resFmt);
   }
 
   Stream<T> stream<T>(
-    Map<String, dynamic> req,
-    T Function(Map<String, dynamic>) fromJson, {
-    Map<String, String> headers = const {},
-  }) async* {
-    final body = Uint8List.fromList(utf8.encode(jsonEncode(req)));
-    final reqHeaders = {
-      'content-type': 'application/connect+json',
-      'connect-protocol-version': '1',
-      ...headers,
-    };
+    SpecCodec<T> reqCodec,
+    T req,
+    SpecCodec<T> resCodec,
+    {Map<String, String> headers = const {}}
+  ) async* {
+    final reqFmt = _extractFormat(_getContentType(headers));
+    final resFmt = _extractFormat(_getAccept(headers));
+
+    final streamHeaders = headers.keys.any((k) => k.toLowerCase() == 'connect-protocol-version')
+        ? headers
+        : {...headers, 'connect-protocol-version': '1', 'content-type': _formatToMime(reqFmt, stream: true)};
+
+    final body = respond(reqCodec, req, reqFmt).body;
+
     final resp = await _transport.send(
-      HttpRequest(url: _url, method: 'POST', headers: reqHeaders, body: body),
+      HttpRequest(url: _url, method: 'POST', headers: streamHeaders, body: body),
     );
     if (resp.status >= 400) {
-      final err = _parseBody(resp.body);
-      throw SpeconnError(
-        err['code'] as String? ?? SpeconnError.unknown,
-        err['message'] as String? ?? '',
-      );
+      throw _parseError(resp.body);
     }
     var pos = 0;
     while (pos < resp.body.length) {
@@ -65,21 +85,15 @@ class SpeconnClient {
       final (:flags, :payload) = decodeEnvelope(remaining);
       pos += 5 + payload.length;
       if (flags & flagEndStream != 0) {
-        final trailer = _parseBody(payload);
-        final error = trailer['error'] as Map<String, dynamic>?;
-        if (error != null) {
-          throw SpeconnError(
-            error['code'] as String? ?? SpeconnError.unknown,
-            error['message'] as String? ?? '',
-          );
-        }
+        if (payload.isNotEmpty) throw SpeconnError.decode(payload, resFmt);
         return;
       }
-      yield fromJson(_parseBody(payload));
+      yield dispatch(resCodec, payload, resFmt);
     }
   }
 
-  static Map<String, dynamic> _parseBody(Uint8List body) {
-    return jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+  static SpeconnError _parseError(Uint8List body) {
+    if (body.isEmpty) return SpeconnError(SpeconnError.unknown, 'empty error body');
+    return SpeconnError.decode(body, 'json');
   }
 }

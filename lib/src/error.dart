@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+import 'package:specodec/specodec.dart';
+
 class SpeconnError implements Exception {
   static const canceled = 'canceled';
   static const unknown = 'unknown';
@@ -54,4 +57,39 @@ class SpeconnError implements Exception {
 
   @override
   String toString() => 'SpeconnError($code): $message';
+
+  Uint8List encode(String fmt) {
+    return respond(SpecCodec<SpeconnError>(
+      encode: (w, obj) {
+        w.beginObject(2);
+        w.writeField('code');    w.writeString(obj.code);
+        w.writeField('message'); w.writeString(obj.message);
+        w.endObject();
+      },
+      decode: (r) => throw UnimplementedError(),
+    ), this, fmt).body;
+  }
+
+  static SpeconnError decode(Uint8List payload, String fmt) {
+    try {
+      return dispatch(SpecCodec<SpeconnError>(
+        encode: (w, obj) {},
+        decode: (r) {
+          String code = unknown, message = '';
+          r.beginObject();
+          while (r.hasNextField()) {
+            switch (r.readFieldName()) {
+              case 'code':    code = r.readString(); break;
+              case 'message': message = r.readString(); break;
+              default:        r.skip();
+            }
+          }
+          r.endObject();
+          return SpeconnError(code, message);
+        },
+      ), payload, fmt);
+    } catch (_) {
+      return SpeconnError(unknown, 'decode error');
+    }
+  }
 }

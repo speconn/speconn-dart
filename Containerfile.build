@@ -1,5 +1,6 @@
 FROM dhi.io/dart:3-alpine3.22-dev AS builder
 WORKDIR /app
+RUN apk add --no-cache git
 COPY pubspec.yaml ./
 RUN --mount=type=cache,target=/root/.pub-cache \
     dart pub get

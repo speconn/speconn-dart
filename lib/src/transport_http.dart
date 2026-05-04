@@ -18,7 +18,7 @@ class HttpTransport extends SpeconnTransport {
     req.bodyBytes = request.body;
     final resp = await client.send(req);
     final body = Uint8List.fromList(await resp.stream.toBytes());
-    return HttpResponse(status: resp.statusCode, body: body);
+    return HttpResponse(status: resp.statusCode, headers: resp.headers, body: body);
   }
 
   @override

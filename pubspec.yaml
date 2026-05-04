@@ -1,4 +1,4 @@
-name: speconn
+name: speconn_runtime_dart
 description: Dart runtime for Speconn RPC
 version: 0.1.0
 

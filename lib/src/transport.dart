@@ -16,9 +16,10 @@ class HttpRequest {
 
 class HttpResponse {
   final int status;
+  final Map<String, String> headers;
   final Uint8List body;
 
-  const HttpResponse({required this.status, required this.body});
+  const HttpResponse({required this.status, required this.headers, required this.body});
 }
 
 abstract class SpeconnTransport {
